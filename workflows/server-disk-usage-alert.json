@@ -1,0 +1,133 @@
+{
+  "name": "Server Disk Usage Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "hostname=$(hostname 2>/dev/null || printf 'unknown'); usage=$(df -P / | awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'); test -n \"$usage\" && printf '%s|%s\\n' \"$hostname\" \"$usage\""
+      },
+      "id": "ssh",
+      "name": "SSH Disk Check",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "threshold",
+              "leftValue": "={{ Number(($json.stdout || '').trim().split('|')[1]) }}",
+              "rightValue": 90,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if",
+      "name": "Root Usage >= 90%?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "=🚨 SERVER DISK ALERT\n\nServer: {{ $json.stdout.trim().split('|')[0] }}\nMount: /\nUsage: {{ $json.stdout.trim().split('|')[1] }}%\nThreshold: 90%\n\nRoot filesystem usage has reached the configured limit.",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Send Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        740,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "SSH Disk Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSH Disk Check": {
+      "main": [
+        [
+          {
+            "node": "Root Usage >= 90%?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Root Usage >= 90%?": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

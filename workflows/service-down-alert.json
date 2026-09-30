@@ -1,0 +1,133 @@
+{
+  "name": "Service Down Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "service='nginx'; server=$(hostname 2>/dev/null || printf 'unknown'); status=$(systemctl is-active \"$service\" 2>/dev/null || true); printf '%s|%s|%s\\n' \"$server\" \"$service\" \"${status:-unknown}\""
+      },
+      "id": "ssh",
+      "name": "SSH Service Check",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "status",
+              "leftValue": "={{ ($json.stdout || '').trim().split('|')[2] }}",
+              "rightValue": "active",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if",
+      "name": "Service Not Active?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "=🚨 SERVICE DOWN\n\nServer: {{ $json.stdout.trim().split('|')[0] }}\nService: {{ $json.stdout.trim().split('|')[1] }}\nStatus: {{ $json.stdout.trim().split('|')[2] }}",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Send Service Down Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        740,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "SSH Service Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSH Service Check": {
+      "main": [
+        [
+          {
+            "node": "Service Not Active?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Service Not Active?": {
+      "main": [
+        [
+          {
+            "node": "Send Service Down Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

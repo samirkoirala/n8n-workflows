@@ -1,0 +1,65 @@
+{
+  "name": "Weekday EOD Reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "45 17 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Weekdays at 17:45",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "📣 EOD Update Reminder\n\n<!channel> <!here> Please post your today's EOD update in this channel before wrapping up for the day.\n\nThank you! 🙌",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Send EOD Reminder",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        260,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Weekdays at 17:45": {
+      "main": [
+        [
+          {
+            "node": "Send EOD Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kathmandu"
+  },
+  "tags": []
+}

@@ -1,0 +1,133 @@
+{
+  "name": "Docker Unhealthy Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "set -eu; server=$(hostname 2>/dev/null || printf 'unknown'); details=$(docker ps -a --format '{{.Names}}|{{.Image}}|{{.Status}}' | awk -F'|' 'tolower($3) ~ /unhealthy/ || $3 ~ /^Exited /'); count=$(printf '%s\\n' \"$details\" | awk 'NF {n++} END {print n+0}'); printf 'SERVER=%s\\nCOUNT=%s\\nDETAILS_START\\n%s\\nDETAILS_END\\n' \"$server\" \"$count\" \"$details\""
+      },
+      "id": "ssh",
+      "name": "SSH Docker Health Check",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "count",
+              "leftValue": "={{ Number((($json.stdout || '').match(/COUNT=(\\d+)/) || [0,0])[1]) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if",
+      "name": "Unhealthy Containers Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "=🚨 DOCKER HEALTH ALERT\n\nServer: {{ (($json.stdout || '').match(/SERVER=([^\\n]+)/) || [0,'unknown'])[1] }}\nContainer | Image | Status\n{{ (($json.stdout || '').match(/DETAILS_START\\n([\\s\\S]*?)\\nDETAILS_END/) || [0,'No details'])[1] }}",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Send Docker Health Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        740,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "SSH Docker Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSH Docker Health Check": {
+      "main": [
+        [
+          {
+            "node": "Unhealthy Containers Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unhealthy Containers Found?": {
+      "main": [
+        [
+          {
+            "node": "Send Docker Health Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

@@ -1,0 +1,214 @@
+{
+  "name": "Docker Restarting Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "set -eu; server=$(hostname 2>/dev/null || printf 'unknown'); details=$(docker ps -a --filter status=restarting --format '{{.Names}} | {{.Status}}'); count=$(printf '%s\\n' \"$details\" | awk 'NF {n++} END {print n+0}'); printf 'SERVER=%s\\nCOUNT=%s\\nDETAILS_START\\n%s\\nDETAILS_END\\n' \"$server\" \"$count\" \"$details\""
+      },
+      "id": "ssh",
+      "name": "SSH Docker Restart Check",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "success",
+              "leftValue": "={{ $json.exitCode ?? 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "count",
+              "leftValue": "={{ Number((($json.stdout || '').match(/COUNT=(\\d+)/) || [0,0])[1]) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if",
+      "name": "Containers Restarting?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "=🔥 HIGH ALERT: DOCKER CONTAINER RESTARTING\n\nServer: {{ (($json.stdout || '').match(/SERVER=([^\\n]+)/) || [0,'unknown'])[1] }}\nRestarting containers: {{ (($json.stdout || '').match(/COUNT=(\\d+)/) || [0,'unknown'])[1] }}\n\n{{ (($json.stdout || '').match(/DETAILS_START\\n([\\s\\S]*?)\\nDETAILS_END/) || [0,'No details'])[1] }}\n\nTroubleshooting: docker ps -a --filter status=restarting",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Send Critical Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        740,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "failed",
+              "leftValue": "={{ $json.exitCode ?? 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "neq"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "failed",
+      "name": "Docker Check Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        740,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "=🚨 DOCKER CHECK FAILED\n\nThe restarting-container check failed; this result is not being treated as zero containers.\nError: {{ $json.stderr || $json.error?.message || 'Unknown SSH or Docker error' }}",
+        "otherOptions": {}
+      },
+      "id": "failure-slack",
+      "name": "Send Check Failure Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "SSH Docker Restart Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSH Docker Restart Check": {
+      "main": [
+        [
+          {
+            "node": "Containers Restarting?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Containers Restarting?": {
+      "main": [
+        [
+          {
+            "node": "Send Critical Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Docker Check Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Docker Check Failed?": {
+      "main": [
+        [
+          {
+            "node": "Send Check Failure Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

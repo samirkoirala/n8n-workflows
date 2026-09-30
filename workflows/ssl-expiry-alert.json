@@ -1,0 +1,133 @@
+{
+  "name": "SSL Expiry Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Daily at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "set -eu; domain='YOUR_DOMAIN'; expiry=$(printf '' | openssl s_client -servername \"$domain\" -connect \"${domain}:443\" 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2); test -n \"$expiry\"; expiry_epoch=$(date -d \"$expiry\" +%s); now=$(date +%s); days=$(( (expiry_epoch-now)/86400 )); printf '%s|%s|%s\\n' \"$domain\" \"$expiry\" \"$days\""
+      },
+      "id": "ssh",
+      "name": "SSH SSL Certificate Check",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "threshold",
+              "leftValue": "={{ Number(($json.stdout || '').trim().split('|')[2]) }}",
+              "rightValue": 30,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if",
+      "name": "Fewer Than 30 Days?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "=⚠️ SSL CERTIFICATE EXPIRING\n\nDomain: {{ $json.stdout.trim().split('|')[0] }}\nExpiration date: {{ $json.stdout.trim().split('|')[1] }}\nDays remaining: {{ $json.stdout.trim().split('|')[2] }}",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Send SSL Expiry Warning",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        740,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Daily at 08:00": {
+      "main": [
+        [
+          {
+            "node": "SSH SSL Certificate Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSH SSL Certificate Check": {
+      "main": [
+        [
+          {
+            "node": "Fewer Than 30 Days?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fewer Than 30 Days?": {
+      "main": [
+        [
+          {
+            "node": "Send SSL Expiry Warning",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

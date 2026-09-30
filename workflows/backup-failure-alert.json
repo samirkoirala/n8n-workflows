@@ -1,0 +1,134 @@
+{
+  "name": "Backup Failure Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 4 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Daily After Backup Window",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "set -eu; BUCKET='YOUR_S3_BUCKET'; SERVER=$(hostname 2>/dev/null || printf 'unknown'); DATABASE='YOUR_DATABASE'; PREFIX=\"s3://${BUCKET}/postgres/${SERVER}/$(date +%Y/%m/%d)/\"; line=$(aws s3 ls \"$PREFIX\" --recursive | awk '$3 > 0 && $4 ~ /\\.sql\\.gz$/ {print}' | sort | tail -1 || true); if test -n \"$line\"; then stamp=$(printf '%s' \"$line\" | awk '{print $1\" \"$2}'); size=$(printf '%s' \"$line\" | awk '{print $3}'); key=$(printf '%s' \"$line\" | awk '{print $4}'); object_epoch=$(date -d \"$stamp\" +%s); age=$(( $(date +%s) - object_epoch )); if test \"$size\" -gt 0 && test \"$age\" -le 86400; then status=OK; else status=FAILED; fi; else status=FAILED; size=0; key=none; age=-1; fi; printf 'STATUS=%s\\nSERVER=%s\\nDATABASE=%s\\nPREFIX=%s\\nOBJECT=%s\\nSIZE=%s\\nAGE_SECONDS=%s\\n' \"$status\" \"$SERVER\" \"$DATABASE\" \"$PREFIX\" \"$key\" \"$size\" \"$age\""
+      },
+      "id": "ssh",
+      "name": "SSH Verify S3 Backup",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "status",
+              "leftValue": "={{ (($json.stdout || '').match(/STATUS=([^\\n]+)/) || [0,'FAILED'])[1] }}",
+              "rightValue": "FAILED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "if",
+      "name": "Backup Missing or Invalid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "=🚨 POSTGRESQL BACKUP VERIFICATION FAILED\n\nServer: {{ (($json.stdout || '').match(/SERVER=([^\\n]+)/) || [0,'unknown'])[1] }}\nDatabase: {{ (($json.stdout || '').match(/DATABASE=([^\\n]+)/) || [0,'unknown'])[1] }}\nExpected location: {{ (($json.stdout || '').match(/PREFIX=([^\\n]+)/) || [0,'unknown'])[1] }}\n\nToday's backup is missing, empty, stale, or the verification command failed.",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Send High Priority Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        740,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Daily After Backup Window": {
+      "main": [
+        [
+          {
+            "node": "SSH Verify S3 Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSH Verify S3 Backup": {
+      "main": [
+        [
+          {
+            "node": "Backup Missing or Invalid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup Missing or Invalid?": {
+      "main": [
+        [
+          {
+            "node": "Send High Priority Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
