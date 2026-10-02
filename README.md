@@ -13,6 +13,7 @@ A collection of reusable n8n workflows for DevOps monitoring, backups, GitHub au
 | Memory Alert | Alert on high RAM usage |
 | CPU Alert | Alert on high CPU usage |
 | SSL Expiry | Warn before SSL expiration |
+| Domain Expiry Reminder | Check domain registration expiry daily and notify Slack only for domains with fewer than 60 days left |
 | Service Alert | Detect stopped systemd services |
 | Backup Failure Alert | Detect missing, empty, or stale S3 backups |
 
@@ -29,6 +30,24 @@ A collection of reusable n8n workflows for DevOps monitoring, backups, GitHub au
 ## Credentials
 
 These workflows intentionally contain no credentials or credential IDs. After importing, manually select the required GitHub, SSH, or Slack credentials. Remote backup workflows expect the AWS CLI to already be configured securely on the target server.
+
+## Domain Expiry Reminder
+
+Import `workflows/domain-expiry-reminder.json` and edit the arrays in **Configure Domains**:
+
+```js
+const domains = ['example.com', 'example.org'];
+const registrars = ['Porkbun', 'babal.host'];
+const warningDays = 60;
+```
+
+Entries match by index: `example.com` belongs to Porkbun and `example.org` belongs to babal.host. The arrays must have equal lengths, registrar labels must be nonempty, and domains must be unique. Use registrable domains without schemes or paths, and punycode for internationalized domains. Select Slack credentials and replace `YOUR_SLACK_CHANNEL` in **Send Domain Expiry Reminder**.
+
+The workflow runs daily at 08:00 in your n8n workflow/instance timezone and checks every configured domain using the public [RDAP bootstrap service](https://about.rdap.org/). Registrar names are labels for the reminder, not account integrations; no registrar, SSH, or RDAP credentials are needed. If both registry and registrar expiration dates are published, it uses the earliest date.
+
+One Slack message lists only domains with fewer than 60 remaining days, sorted by urgency, with their registrar and expiration date. Remaining days are rounded up; domains showing exactly 60 days are excluded. Already expired domains are included. If no domains qualify, no Slack message is sent.
+
+Failed lookups and missing expiration dates are logged with `console.warn` in the Code node and excluded from Slack. Exclusion does not confirm that a domain is safe: some registries do not publish expiration dates through RDAP. Verify those dates with your registrar. Test the workflow before activating it.
 
 ## Contributing
 

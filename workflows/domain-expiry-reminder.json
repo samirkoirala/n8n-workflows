@@ -1,0 +1,147 @@
+{
+  "name": "Domain Expiry Reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Daily at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Match domains and registrars by array index. Use registrable domains, not URLs.\nconst domains = ['YOUR_DOMAIN_1', 'YOUR_DOMAIN_2'];\nconst registrars = ['Porkbun', 'babal.host'];\nconst warningDays = 60;\nif (!Array.isArray(domains) || !Array.isArray(registrars) || domains.length !== registrars.length) {\n  throw new Error('domains and registrars must be arrays with the same number of entries.');\n}\nconst seen = new Set();\nreturn domains.map((value, index) => {\n  const domain = typeof value === 'string' ? value.trim().toLowerCase() : '';\n  const registrar = typeof registrars[index] === 'string' ? registrars[index].trim() : '';\n  if (domain.length > 253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(domain)) {\n    throw new Error(`Replace domain at index ${index} with a valid registrable domain (use punycode for IDNs).`);\n  }\n  if (!registrar) throw new Error(`Set the registrar at index ${index}.`);\n  if (seen.has(domain)) throw new Error(`Duplicate domain: ${domain}`);\n  seen.add(domain);\n  return { json: { domain, registrar, warningDays } };\n});"
+      },
+      "id": "config",
+      "name": "Configure Domains",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://rdap.org/domain/' + encodeURIComponent($json.domain) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "rdap",
+      "name": "Look Up Domain Registration",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const reminders = [];\nconst now = Date.now();\nfor (const [index, item] of $input.all().entries()) {\n  // Follow n8n item links so each response keeps its own domain and registrar.\n  const { domain, registrar, warningDays } = $('Configure Domains').itemMatching(index).json;\n  const response = item.json;\n  if (response.error || response.statusCode !== 200) {\n    console.warn(`Domain expiry lookup failed for ${domain}; check HTTP execution details.`);\n    continue;\n  }\n  const events = Array.isArray(response.body?.events) ? response.body.events : [];\n  const dates = events\n    .filter(event => event && ['expiration', 'registrar expiration'].includes(event.eventAction))\n    .map(event => Date.parse(event.eventDate))\n    .filter(Number.isFinite);\n  if (!dates.length) {\n    console.warn(`No usable RDAP expiration date for ${domain}; verify with the registrar.`);\n    continue;\n  }\n  const expiry = Math.min(...dates);\n  const daysRemaining = Math.ceil((expiry - now) / 86400000);\n  if (daysRemaining >= warningDays) continue;\n  reminders.push({ domain, registrar, daysRemaining, expirationDate: new Date(expiry).toISOString() });\n}\nif (!reminders.length) return [];\nreminders.sort((a, b) => a.daysRemaining - b.daysRemaining);\n// Escape user-supplied labels for Slack; prevent mentions and injected links.\nconst escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/[\\r\\n]/g, ' ');\nconst lines = reminders.map(({ domain, registrar, daysRemaining, expirationDate }) =>\n  `• ${escape(domain)} | ${escape(registrar)} | ${daysRemaining} days left | expires ${expirationDate.slice(0, 10)} (UTC)`);\nreturn [{ json: { domains: reminders, message: `⚠️ DOMAIN EXPIRY REMINDER\\n\\n${lines.join('\\n')}` } }];"
+      },
+      "id": "check",
+      "name": "Check Expiration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "YOUR_SLACK_CHANNEL",
+          "mode": "id"
+        },
+        "text": "={{ $json.message }}",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Send Domain Expiry Reminder",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        960,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Daily at 08:00": {
+      "main": [
+        [
+          {
+            "node": "Configure Domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configure Domains": {
+      "main": [
+        [
+          {
+            "node": "Look Up Domain Registration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look Up Domain Registration": {
+      "main": [
+        [
+          {
+            "node": "Check Expiration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Expiration": {
+      "main": [
+        [
+          {
+            "node": "Send Domain Expiry Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
